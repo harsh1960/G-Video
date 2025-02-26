@@ -12,6 +12,9 @@
         #controls {
             margin-top: 10px;
         }
+        #roomList {
+            margin-top: 10px;
+        }
     </style>
 </head>
 <body>
@@ -21,12 +24,15 @@
     <div id="controls">
         <input type="text" id="roomId" placeholder="Room ID">
         <button id="joinButton">Join</button>
+        <button id="searchButton">Search Rooms</button>
     </div>
+
+    <div id="roomList"></div>
 
     <script type="module">
         // Import the functions you need from the SDKs you need
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.3.1/firebase-app.js";
-        import { getDatabase, ref, set, onValue, push, off } from "https://www.gstatic.com/firebasejs/11.3.1/firebase-database.js";
+        import { getDatabase, ref, set, onValue, push, off, get } from "https://www.gstatic.com/firebasejs/11.3.1/firebase-database.js";
 
         // Your web app's Firebase configuration
         const firebaseConfig = {
@@ -47,6 +53,8 @@
         const remoteVideo = document.getElementById('remoteVideo');
         const roomIdInput = document.getElementById('roomId');
         const joinButton = document.getElementById('joinButton');
+        const searchButton = document.getElementById('searchButton');
+        const roomListDiv = document.getElementById('roomList');
 
         let localStream;
         let remoteStream;
@@ -172,6 +180,26 @@
                 createAnswer();
             } else {
                 createOffer();
+            }
+        });
+
+        searchButton.addEventListener('click', async () => {
+            roomListDiv.innerHTML = ''; // Clear previous list
+            const roomsRef = ref(database, 'rooms');
+            const snapshot = await get(roomsRef);
+
+            if (snapshot.exists()) {
+                snapshot.forEach(childSnapshot => {
+                    const roomKey = childSnapshot.key;
+                    const roomItem = document.createElement('div');
+                    roomItem.textContent = roomKey;
+                    roomItem.addEventListener('click', () => {
+                        roomIdInput.value = roomKey;
+                    });
+                    roomListDiv.appendChild(roomItem);
+                });
+            } else {
+                roomListDiv.textContent = 'No rooms available.';
             }
         });
     </script>
