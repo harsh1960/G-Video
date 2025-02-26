@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Video Call</title>
+    <style>
+        #localVideo, #remoteVideo {
+            width: 320px;
+            height: 240px;
+            border: 1px solid black;
+        }
+
+        #controls {
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <video id="localVideo" autoplay muted></video>
+    <video id="remoteVideo" autoplay></video>
+
+    <div id="controls">
+        <input type="text" id="roomId" placeholder="Room ID">
+        <button id="joinButton">Join</button>
+    </div>
+
+    <script type="module">
+        // Import the functions you need from the SDKs you need
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.3.1/firebase-app.js";
+        import { getDatabase, ref, set, onValue, push, off } from "https://www.gstatic.com/firebasejs/11.3.1/firebase-database.js";
+
+        // Your web app's Firebase configuration
+        const firebaseConfig = {
+            apiKey: "AIzaSyCg7OgXgGPeDfuNvZ5kCWx3tnGqtvLchC0",
+            authDomain: "videocall-c1121.firebaseapp.com",
+            databaseURL: "https://videocall-c1121-default-rtdb.firebaseio.com",
+            projectId: "videocall-c1121",
+            storageBucket: "videocall-c1121.firebasestorage.app",
+            messagingSenderId: "351073994639",
+            appId: "1:351073994639:web:8695d878cb9cebbcc26dfa"
+        };
+
+        // Initialize Firebase
+        const app = initializeApp(firebaseConfig);
+        const database = getDatabase(app);
+
+        const localVideo = document.getElementById('localVideo');
+        const remoteVideo = document.getElementById('remoteVideo');
+        const roomIdInput = document.getElementById('roomId');
+        const joinButton = document.getElementById('joinButton');
+
+        let localStream;
+        let remoteStream;
+        let peerConnection;
+        let roomId;
+
+        const iceServers = {
+            iceServers: [
+                { urls: 'stun:stun.l.google.com:19302' },
+                { urls: 'stun:stun1.l.google.com:19302' },
+                { urls: 'stun:stun2.l.google.com:19302' },
+                { urls: 'stun:stun3.l.google.com:19302' },
+                { urls: 'stun:stun4.l.google.com:19302' },
+            ],
+        };
+
+        async function startLocalVideo() {
+            try {
+                localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+                localVideo.srcObject = localStream;
+            } catch (error) {
+                console.error('Error accessing media devices.', error);
+            }
+        }
+
+        async function createOffer() {
+            try {
+                peerConnection = new RTCPeerConnection(iceServers);
+                localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+
+                peerConnection.ontrack = event => {
+                    remoteVideo.srcObject = event.streams[0];
+                };
+
+                peerConnection.onicecandidate = event => {
+                    if (event.candidate) {
+                        push(ref(database, `rooms/${roomId}/candidates`), event.candidate);
+                    }
+                };
+
+                const offer = await peerConnection.createOffer();
+                await peerConnection.setLocalDescription(offer);
+
+                set(ref(database, `rooms/${roomId}/offer`), offer);
+
+                onValue(ref(database, `rooms/${roomId}/answer`), async snapshot => {
+                    if (snapshot.exists() && peerConnection.remoteDescription == null) {
+                        await peerConnection.setRemoteDescription(new RTCSessionDescription(snapshot.val()));
+                        off(ref(database, `rooms/${roomId}/answer`));
+                    }
+                });
+
+                onValue(ref(database, `rooms/${roomId}/candidates`), async snapshot => {
+                    if (snapshot.exists()) {
+                        snapshot.forEach(async childSnapshot => {
+                            try {
+                                await peerConnection.addIceCandidate(new RTCIceCandidate(childSnapshot.val()));
+                            } catch (e) {
+                                console.error('Error adding received candidate', e);
+                            }
+                        });
+                    }
+                });
+
+            } catch (error) {
+                console.error('Error creating offer.', error);
+            }
+        }
+
+        async function createAnswer() {
+            try {
+                peerConnection = new RTCPeerConnection(iceServers);
+                localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+
+                peerConnection.ontrack = event => {
+                    remoteVideo.srcObject = event.streams[0];
+                };
+
+                peerConnection.onicecandidate = event => {
+                    if (event.candidate) {
+                        push(ref(database, `rooms/${roomId}/candidates`), event.candidate);
+                    }
+                };
+                onValue(ref(database, `rooms/${roomId}/offer`), async snapshot => {
+                    if (snapshot.exists()) {
+                        await peerConnection.setRemoteDescription(new RTCSessionDescription(snapshot.val()));
+                        const answer = await peerConnection.createAnswer();
+                        await peerConnection.setLocalDescription(answer);
+
+                        set(ref(database, `rooms/${roomId}/answer`), answer);
+                        off(ref(database, `rooms/${roomId}/offer`));
+                    }
+                });
+                onValue(ref(database, `rooms/${roomId}/candidates`), async snapshot => {
+                    if (snapshot.exists()) {
+                        snapshot.forEach(async childSnapshot => {
+                            try {
+                                await peerConnection.addIceCandidate(new RTCIceCandidate(childSnapshot.val()));
+                            } catch (e) {
+                                console.error('Error adding received candidate', e);
+                            }
+                        });
+                    }
+                });
+
+            } catch (error) {
+                console.error('Error creating answer.', error);
+            }
+        }
+
+        joinButton.addEventListener('click', async () => {
+            roomId = roomIdInput.value;
+            await startLocalVideo();
+
+            const roomRef = ref(database, `rooms/${roomId}`);
+            const roomSnapshot = await new Promise((resolve) => {
+                onValue(roomRef, resolve, {
+                    onlyOnce: true
+                });
+            });
+
+            if (roomSnapshot.exists()) {
+                createAnswer();
+            } else {
+                createOffer();
+            }
+        });
+    </script>
+</body>
+</html>
